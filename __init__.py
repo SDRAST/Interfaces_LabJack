@@ -2,10 +2,9 @@
 """
 Monitor and Control  with LabJack
 
-For details see the
-U{LabJack U3 User Manual
-http://labjack.com/support/u3/users-guide and
-http://dsnra.jpl.nasa.gov/software/Python/python-modules/Observatory/Interfaces/LabJack
+For details see the LabJack U3 User Manual::
+ http://labjack.com/support/u3/users-guide and
+ http://dsnra.jpl.nasa.gov/software/Python/python-modules/Observatory/Interfaces/LabJack
 
 LabJack
 =======
