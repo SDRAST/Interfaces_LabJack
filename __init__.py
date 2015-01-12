@@ -111,6 +111,9 @@ def toDouble(buffer):
   
   Used to convert I2C calibration bytes to I2C constants
 
+  The slopes and offsets are stored in 64-bit fixed point format (signed
+  32.32, little endian, 2’s complement).
+
   @type buffer : bit string
   @param buffer : an array with 8 bytes
 
@@ -513,6 +516,7 @@ class LJTickDAC():
 
     @return: None
     """
+    self.logger = logging.getLogger(__name__+".LJTickDAC")
     self.device = device
     self.dacPin = FIO_pin
     self.getCalConstants()
@@ -560,10 +564,11 @@ class LJTickDAC():
                        SDAPinNum = sdaPin,
                        SCLPinNum = sclPin)
       return True
-    except:
+    except Exception, details:
       print "Whoops! Something went wrong when setting the LJTickDAC."
       print "Is the device detached?"
       print "Python error:" + str(sys.exc_info()[1])
+      print str(details)
       return False
 
   def getCalConstants(self):
@@ -578,7 +583,29 @@ class LJTickDAC():
     =====
     This is for U3 only
     
-    See datasheet for more info
+    The LJTDAC has a non-volatile 128-byte EEPROM (Microchip 24C01C) on the I2C
+    bus with a 7-bit address of 0x50 (d80), and thus an 8-bit address byte of
+    0xA0 (d160). Bytes 0-63 are available to the user, while bytes 64-127 are
+    reserved::
+      EEPROM
+      Address                   Nominal Value
+       0- 63  User Area
+      64- 71  DACA Slope        3.1586E+03  bits/volt
+      72- 79  DACA Offset       3.2624E+04  bits
+      80- 87  DACB Slope        3.1586E+03  bits/volt
+      88- 95  DACB Offset       3.2624E+04  bits
+      96- 99  Serial Number
+     100-127  Reserved
+    
+    The DAC (digital-to-analog converter) chip on the LJTDAC is the LTC2617
+    (linear.com) with a 7-bit address of 0x12 (d18), and thus an 8-bit address
+    byte of 0x24 (d36). The data is justified to 16 bits, so a binary value of
+    0 (actually 0-3) results in minimum output (~-10.3 volts) and a binary
+    value of 65535 (actually 65532-65535) results in maximum output
+    (~10.4 volts).
+
+    The serial number is simply an unsigned 32-bit value where byte 96 is the
+    LSB and byte 99 is the MSB.
     """
     # Determine pin numbers
     sclPin = self.dacPin
@@ -590,16 +617,23 @@ class LJTickDAC():
                            NumI2CBytesToReceive=36,
                            SDAPinNum = sdaPin,
                            SCLPinNum = sclPin)
+    
     response = data['I2CBytes']
+    self.logger.debug("getCalConstants: data keys: %s",
+                      data.keys())
     self.aSlope = toDouble(response[0:8])
     self.aOffset = toDouble(response[8:16])
     self.bSlope = toDouble(response[16:24])
     self.bOffset = toDouble(response[24:32])
+    self.serial = struct.unpack('<i',
+                                ''.join(chr(x) for x in response[32:36]))[0]
   
     if 255 in response:
-      print "The calibration constants seem a little off."
-      print "Please go into settings and make sure the pin numbers are correct"
-      print "and that the LJTickDAC is properly attached."
+      self.logger.error("getCalConstants: %s", response)
+      self.logger.warning(" Please go into settings\n"+
+           "  and make sure the pin numbers are correct\n"+
+           "  and that the LJTickDAC is properly attached.")
+
 
 class AIN_Reader(Thread):
   """
