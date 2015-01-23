@@ -352,12 +352,18 @@ class LabJack(U3):
     """
     Instantiate a LabJack
 
+    If the Labjack is known by it serial number then we know where it is and
+    can make sure that it has the right local ID.  The set below are for the
+    Labjacks in WBDC1.  For other Labjacks we trust that the local ID was set
+    correctly in the configuration.
+
     @param serialno : serial number of the LabJack
     @type  serialno : str
     """
     U3.__init__(self,autoOpen = True, serial = int(serialno))
     self.config = self.configU3()
     self.IO_state = self.configIO()
+    
     self.serial = self.config['SerialNumber']
     if self.serial == 320037493:
       self.configU3(LocalID=3)
