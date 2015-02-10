@@ -104,6 +104,14 @@ module_logger = logging.getLogger(__name__)
 
 U3name = {}
 
+LJchan = {"FIO0": 0, "FIO1": 1, "FIO2": 2, "FIO3": 3,
+          "FIO4": 4, "FIO5": 5, "FIO6": 6, "FIO7": 7,
+          "EIO0": 8, "EIO1": 9, "EIO2":10, "EIO3":11,
+          "EIO4":12, "EIO5":13, "EIO6":14, "EIO7":15,
+          "CIO0":16, "CIO1":17, "CIO2":18, "CIO3":19}
+
+################################# functions ###################################
+
 def toDouble(buffer):
   """
   toDouble - Converts the 8 byte array into a floating point number.
@@ -129,10 +137,10 @@ def searchForDevices():
     """
     Determines if U3 devices are available
     """
-    u3Available = u3.listAll(3)
-    return u3Available
+    u3Available = u3.listAll(3) # argument must be 3 for U3
+    return u3Available.keys()
 
-def connect_to_U3s():
+def connect_to_U3s(localIDs):
   """
   Open all the U3s
 
@@ -147,43 +155,12 @@ def connect_to_U3s():
     print "Could not list all U3s"
     print details
     return lj
-  for serialno in U3s.keys():
-    LJ = LabJack(serialno)
-    localID = LJ.localID
-    lj[localID] = LJ  # LabJack(serialno)
+  for serialno in localIDs.keys():
+    localID = localIDs[serialno]
+    lj[localID] = LabJack(serialno)
   if len(lj) == 0:
     print "No LabJack U3s found.  Is USB connected?"
   return lj
-
-def get_LJ_ID(LJ):
-  """
-  Get the local ID of the designated LabJack instance.
-
-  This is for backward compatibility.
-  """
-  try:
-    return LJ.localID
-  except:
-    return None
-
-def get_U3s_config(lj):
-  """
-  Get the power-up configuration of the connected U3s
-
-  @type lj : dictionary
-  @param lj : u3.U3 class instances
-
-  @return: dictionary
-  """
-  config = {}
-  for ID in lj.keys():
-    try:
-      config[ID] = lj[ID].configU3()
-    except Exception, details:
-      print "Could not get U3",ID,"configuration"
-      print details
-      continue
-  return config
   
 def get_IO_states(lj):
   """
@@ -283,7 +260,7 @@ def report_IO_config(config):
   params = unique(par_keys)
   params.sort()
   response = "=============== U3 I/O Configurations ================\n"
-  response += "U3 local ID:        "
+  response += "U3 local ID:       verify_labjacks "
   for U3 in U3s:
     response += ("%4d     " % U3)
   response += "\n"
@@ -365,14 +342,27 @@ class LabJack(U3):
     self.IO_state = self.configIO()
     
     self.serial = self.config['SerialNumber']
-    if self.serial == 320037493:
-      self.configU3(LocalID=3)
-    elif self.serial == 320038183:
-      self.configU3(LocalID=1)
-    elif self.serial == 320038583:
-      self.configU3(LocalID=2)
     self.localID = self.config['LocalID']
     self.logger = logging.getLogger(__name__+".LabJack")
+
+def get_U3s_config(lj):
+  """
+  Get the power-up configuration of the connected U3s
+
+  @type lj : dictionary
+  @param lj : u3.U3 class instances
+
+  @return: dictionary
+  """
+  config = {}
+  for ID in lj.keys():
+    try:
+      config[ID] = lj[ID].configU3()
+    except Exception, details:
+      print "Could not get U3",ID,"configuration"
+      print details
+      continue
+  return config
 
   def get_AINs(self,prefix):
     """
@@ -457,21 +447,22 @@ class LabJack(U3):
   
 class LJTickDAC():
   """
-  Each FIO section, when configured for digital output, can accomodate
-  a TickDAC.  Pins VS and GND power the TickDAC while FIO)x) and FIO(x+1)
-  communicate with the TickDAC using Inter-Integrtaed Circuit (I2C)
-  protocol.  FIO(x) provides CLK and FIO(x+1) provides SDA.
+  Each FIO section, when configured for digital output, can accomodate a
+  TickDAC with two ADCs in the range of -10 to +10 V.  Pins VS and GND power
+  the TickDAC. The two IO ports in each block (e.g. FIO(x) and FIO(x+1))
+  are used to communicate with the TickDAC using Inter-Integrated Circuit (I2C)
+  protocol. A specific TickDAC is selected using the LabJack channel numbers
+  (see LJchan above).  The even-numbered channel provides CLK and odd-numbered
+  channel provides SDA.
 
-  The TickDAC also has a four screw connector whose pins are::
+  The TickDAC has a four screw connector whose pins are::
     VS    - 4 V supply
     GND   - ground
     DACA  - +/- 10 V with 14-bit resolution
     DACB  - +/- 10 V with 14-bit resolution
-  Communication between the LabJack and the TickDAC is done with the
-  I2C protocol.
 
   The TickDAC has a non-volatile 128-byte EEPROM on the I2C bus with a
-  7-bit address of 0x50 (d80). Bytes 0-63 are available to the user,
+  7-bit address of 0x50 (decimal 80). Bytes 0-63 are available to the user,
   while bytes 64-127 are reserved::
     EEPROM Address  Description   Nominal Value
      0- 63         User Area
@@ -558,8 +549,8 @@ class LJTickDAC():
     try:
       self.device.i2c(LJTickDAC.DAC_address,
                       [48,
-                       int(((voltageA*self.aSlope)+self.aOffset)/256),
-                       int(((voltageA*self.aSlope)+self.aOffset)%256)],
+                       int(((voltageA*self.aSlope) + self.aOffset)/256),
+                       int(((voltageA*self.aSlope) + self.aOffset)%256)],
                        SDAPinNum = sdaPin,
                        SCLPinNum = sclPin)
       self.device.i2c(LJTickDAC.DAC_address,
