@@ -4,15 +4,15 @@ Monitor and Control  with LabJack
 
 For details see the LabJack U3 User Manual::
  http://labjack.com/support/u3/users-guide and
- http://dsnra.jpl.nasa.gov/software/Python/python-modules/Observatory/Interfaces/LabJack
+ https://github.jpl.nasa.gov/pages/RadioAstronomy/Electronics/
 
 LabJack
 =======
 Each U3 has four FIO sections with these pins::
-  VS    VS    VS    VS    - 5 V supply
-  GND   GND   GND   GND   - ground
-  FIO0  FIO2  FIO4  FIO6  - FIO
-  FIO1  FIO3  FIO5  FIO7  - FIO
+  VS     VS     VS     VS    - 5 V supply
+  GND    GND    GND    GND   - ground
+  FIO0   FIO2   FIO4   FIO6  - FIO
+  FIO1   FIO3   FIO5   FIO7  - FIO
 The fifth and sixth blocks are::
   VS    VS
   SGND  GND
@@ -23,11 +23,11 @@ FIO pins can be::
   digital input    (FIOAnalog = 0, FIOBitDir = 0)
   digital output   (FIOAnalog = 0, FITBitDir = 1)
   
-In addition, the DB15 connector has four digital-only lines,
-CIO0 - CIO3.
+In addition, the DB15 connector has twelve digital-only lines,
+EIO0-EIO7 and CIO0 - CIO3.
 
 An initial checkout might be::
-  In [2]: from Observatory import WBDC
+  In [2]: from Electronics.Interfaces.LabJack import *
   In [3]: lj = connect_to_U3s()
 
 The normal state of the U3s is something like::
@@ -59,7 +59,7 @@ These are the classes in this module and their attributes and methods::
   class LabJack():
     get_AINs(prefix)
   class LJTickDAC():
-    __init__(self, device, FIO_pin=0)
+    __init__(self, device, IO_chan=0)
     report_LabTick(self)
     setVoltages(self,voltages)
     getCalConstants(self)
@@ -91,14 +91,16 @@ These functions deal with LabJack configuration::
 import sys
 import re
 import u3
-import Math
+from LabJackPython import listAll, openAllLabJacks
 import time
 import struct
 import numpy as NP
 from threading import Thread
-from u3 import U3
-from support import unique
 import logging
+
+import Math
+from support import unique
+from Electronics.Instruments import VoltageSource
 
 module_logger = logging.getLogger(__name__)
 
@@ -137,78 +139,46 @@ def searchForDevices():
     """
     Determines if U3 devices are available
     """
-    u3Available = u3.listAll(3) # argument must be 3 for U3
+    u3Available = listAll(3) # argument must be 3 for U3
     return u3Available.keys()
 
-def connect_to_U3s(localIDs):
+def connect_to_U3s(localIDs=None):
   """
   Open all the U3s
 
   Return a dictionary of LabJack instances indexed by local ID.  This is
   different from u3.openAllU3() which returns a list of U3 instances
   indexed by serial number.
+
+  If dict localIDs is not given, the localID already in the LabJack is used.
+
+  @param localIDs : optional {serialNo:localID} assigned to the LabJacks
+  @type  localIDs : dict
+
+  @return: dict of LabJack instances
   """
   lj = {}
   try:
-    U3s = u3.listAll(3) # openAllU3()
+    U3s = listAll(3) # openAllU3()
   except Exception, details:
     print "Could not list all U3s"
     print details
-    return lj
-  for serialno in localIDs.keys():
-    localID = localIDs[serialno]
+    return {}
+  if localIDs == None:
+    serials = U3s.keys()
+  else:
+    localIDs.keys()
+  for serialno in serials :
+    if localIDs == None:
+      localID = U3s[serialno]['localId']
+    else:
+      localID = localIDs[serialno]
     lj[localID] = LabJack(serialno)
   if len(lj) == 0:
     print "No LabJack U3s found.  Is USB connected?"
   return lj
-  
-def get_IO_states(lj):
-  """
-  Get the I/O state of the connected U3s
 
-  @type lj : dictionary
-  @param lj : u3.U3 class instances keyed by local ID
-
-  @return: dictionary
-  """
-  config = {}
-  for ID in lj.keys():
-    response = {}
-    EAINvalues = lj[ID].get_AINs("E")
-    for AIN in EAINvalues.keys():
-      response[AIN] = lj[ID].binaryToCalibratedAnalogVoltage(
-                      EAINvalues[AIN][0],
-                      isLowVoltage=True,
-                      isSingleEnded=True)
-                      
-    FAINvalues = lj[ID].get_AINs("F")
-    for AIN in FAINvalues.keys():
-      response[AIN] = lj[ID].binaryToCalibratedAnalogVoltage(
-                      FAINvalues[AIN][0],
-                      isLowVoltage=True,
-                      isSingleEnded=True)
-                      
-    try:
-      bitdirs = lj[ID].getFeedback(u3.PortDirRead())[0]
-    except Exception,details:
-      print "Could not get direction bits for LabJack",lj[ID].localID
-    else:
-      response["CIOBitDir"] = bitdirs["CIO"]
-      response["EIOBitDir"] = bitdirs["EIO"]
-      response["FIOBitDir"] = bitdirs["FIO"]
-    try:
-      bitstates = lj[ID].getFeedback(u3.PortStateRead())[0]
-    except Exception,details:
-      print "Could not get states of bits for LabJack",lj[ID].localID
-    else:
-      response["CIOState"] = bitstates["CIO"]
-      response["EIOState"] = bitstates["EIO"]
-      response["FIOState"] = bitstates["FIO"]
-      response["Temperature"] = lj[ID].getTemperature()
-    config[ID] = response
-  return config
-
-def report_U3_config(config):
+def report_U3_config(lj):
   """
   Prints the U3 power-up configuration of all U3s
 
@@ -218,7 +188,7 @@ def report_U3_config(config):
   @return: None
   """
   response = ""
-  U3s = config.keys()
+  U3s = lj.keys()
   pars = ['SerialNumber', 'LocalID', 'DeviceName',
           'HardwareVersion', 'FirmwareVersion', 'BootloaderVersion',
           'FIOAnalog', 'FIODirection', 'FIOState',
@@ -232,7 +202,7 @@ def report_U3_config(config):
   for par in pars:
     response += ("%21s" % par)
     for ID in U3s:
-      value = config[ID][par]
+      value = lj[ID].u3_config[par]
       if re.search('IO',par):
         response += ("%10s" % Math.decimal_to_binary(value,8))
       elif type(value) == float:
@@ -244,7 +214,7 @@ def report_U3_config(config):
     response += "\n"
   return response
     
-def report_IO_config(config):
+def report_IO_config(lj):
   """
   Print the IO state of all U3s
 
@@ -253,24 +223,24 @@ def report_IO_config(config):
 
   @return: None
   """
-  U3s = config.keys() # list of U3s
+  U3s = lj.keys() # list of U3s
   par_keys = []
   for ID in U3s:
-    par_keys += config[ID].keys()
+    par_keys += lj[ID].IO_config.keys()
   params = unique(par_keys)
   params.sort()
   response = "=============== U3 I/O Configurations ================\n"
-  response += "U3 local ID:       verify_labjacks "
+  response += "U3 local ID:           "
   for U3 in U3s:
     response += ("%4d     " % U3)
   response += "\n"
   for param in params:
     response += ("%22s " % param)
     for ID in U3s:
-      if config[ID].has_key(param):
-        value = config[ID][param]
+      if lj[ID].IO_config.has_key(param):
+        value = lj[ID].IO_config[param]
         if re.search("Timer",param):
-          response += ("%9d " % value)
+          response += ("%8d " % value)
         elif type(value) == int:
           response += Math.decimal_to_binary(value,8)+" "
         elif type(value) == float:
@@ -292,7 +262,9 @@ def close_U3s(lj):
   for ID in lj.keys():
     lj[ID].close()
 
-class LabJack(U3):
+################################# LabJack classes #############################
+
+class LabJack(u3.U3):
   """
   U3 subclass with additional attributes and methods.
 
@@ -300,21 +272,21 @@ class LabJack(U3):
     binaryToCalibratedAnalogTemperature()
     binaryToCalibratedAnalogVoltage() Bits returned from AIN into voltage.
     close()
-    configAnalog()
-    configDigital()
-    configIO()
+    configAnalog()      same as configIO()
+    configDigital()     same as configIO()
+    configIO()          reports DAC1Enable, EIOAnalog, DIOAnalog and timers
     configTimerClock()
-    configU3()
+    configU3()          report or set configuration parameters
     getAIN()
-    getDIOState()
+    getDIOState()       read the state of a digital I/O channel
     getDIState()        A convenience function to read the state of an FIO.
     getFeedback()       Sends a commandlist to the U3, and reads the response.
     getName()
     getTemperature()    Reads the internal temperature sensor on the U3.
     loadConfig()        Takes a configuration and updates the U3 to match it.
     reset()             Causes a soft or hard reset.
-    setDIOState()
-    setDOState()        Set the state of a digital I/O
+    setDIOState()       same as setDOState
+    setDOState()        Set the state of a digital I/O channel
     setName()
     setToFactoryDefaults()
     toggleLED()         Toggles the state LED on and off.
@@ -337,32 +309,16 @@ class LabJack(U3):
     @param serialno : serial number of the LabJack
     @type  serialno : str
     """
-    U3.__init__(self,autoOpen = True, serial = int(serialno))
-    self.config = self.configU3()
-    self.IO_state = self.configIO()
+    mylogger = logging.getLogger(module_logger.name+".LabJack")
+    u3.U3.__init__(self,autoOpen = True, serial = int(serialno))
+    self.logger = mylogger
+    self.u3_config = self.configU3()
+    self.IO_config = self.configIO()
+    self.IO_state = self.get_IO_states()
     
-    self.serial = self.config['SerialNumber']
-    self.localID = self.config['LocalID']
+    self.serial = self.u3_config['SerialNumber']
+    self.localID = self.u3_config['LocalID']
     self.logger = logging.getLogger(__name__+".LabJack")
-
-def get_U3s_config(lj):
-  """
-  Get the power-up configuration of the connected U3s
-
-  @type lj : dictionary
-  @param lj : u3.U3 class instances
-
-  @return: dictionary
-  """
-  config = {}
-  for ID in lj.keys():
-    try:
-      config[ID] = lj[ID].configU3()
-    except Exception, details:
-      print "Could not get U3",ID,"configuration"
-      print details
-      continue
-  return config
 
   def get_AINs(self,prefix):
     """
@@ -405,8 +361,37 @@ def get_U3s_config(lj):
     return response["FIODirection"], \
            response["EIODirection"], \
            response["CIODirection"]
+
+  def configureIO(self, config_dict):
+    """
+    Configure the IO ports
+
+    This sets the IO onfiguration parameters::
+      'FIODirection', 'FIOAnalog',
+      'EIODirection', 'EIOAnalog',
+      'CIODirection'
+
+    Example::
+      config_dict = {'FIODirection': 0,
+                     'FIOAnalog':    int('00000011',2),
+                     'EIODirection': int('11111111',2),
+                     'EIOAnalog':    0,
+                     'CIODirection': 0}
+
+    In fact, this is not limited to these keys but can be used with any valid
+    configuration keys.
+
+    @param config_dict : dict with above keys and byte values
+    @type  config_dict : {str:int, ...}
+    """
+    command = ""
+    for key in config_dict.keys():
+      print "Processing",key
+      command += key+"="+str(config_dict[key])+","
+      print command
+    eval( "self.configIO(" + (command[:-1]) + ")" )
       
-  def set_DO_bits(self,prefix,byte):
+  def set_DO_bits(self, prefix, byte):
     """
     Set digital output bits
 
@@ -417,12 +402,13 @@ def get_U3s_config(lj):
     @param byte : value to write to port
     """
     Fdir,Edir,Cdir = self.get_dir_bits()
-    print "For",prefix,'direction is',Fdir,Edir,Cdir
+    self.logger.debug("For %s, direction is %d, %d, %d", prefix,Fdir,Edir,Cdir)
     if prefix.upper() == "F":
       mask = [Fdir,0,0]
       state = [byte,0,0]
-      print "Mask ",Math.decimal_to_binary(mask[0],8), \
-            "State ",Math.decimal_to_binary(state[0],8)
+      self.logger.debug("Mask %s, State %s",
+                        Math.decimal_to_binary(mask[0],8),
+                        Math.decimal_to_binary(state[0],8))
     elif prefix.upper() == "E":
       mask = Edir
       state = [0,byte,0]
@@ -444,6 +430,49 @@ def get_U3s_config(lj):
     self.getFeedback(u3.BitStateWrite(IONumber = bit, State = 0))
     time.sleep(0.5)
     self.getFeedback(u3.BitStateWrite(IONumber = bit, State = 1))
+
+  def get_IO_states(self):
+    """
+    Get the I/O state of the connected U3s
+
+    @type lj : dictionary
+    @param lj : u3.U3 class instances keyed by local ID
+
+    @return: dictionary
+    """
+    self.IO_state = {}
+    response = {}
+    EAINvalues = self.get_AINs("E")
+    for AIN in EAINvalues.keys():
+      response[AIN] = self.binaryToCalibratedAnalogVoltage(EAINvalues[AIN][0],
+                                                           isLowVoltage=True,
+                                                           isSingleEnded=True)
+    FAINvalues = self.get_AINs("F")
+    for AIN in FAINvalues.keys():
+      response[AIN] = self.binaryToCalibratedAnalogVoltage(FAINvalues[AIN][0],
+                                                           isLowVoltage=True,
+                                                           isSingleEnded=True)
+    try:
+      bitdirs = self.getFeedback(u3.PortDirRead())[0]
+    except Exception,details:
+      self.logger.error("Could not get direction bits for LabJack %d",
+                        self.localID)
+    else:
+      response["CIOBitDir"] = bitdirs["CIO"]
+      response["EIOBitDir"] = bitdirs["EIO"]
+      response["FIOBitDir"] = bitdirs["FIO"]
+    try:
+      bitstates = self.getFeedback(u3.PortStateRead())[0]
+    except Exception,details:
+      self.logger.error("Could not get states of bits for LabJack %s",
+                        self.localID)
+    else:
+      response["CIOState"] = bitstates["CIO"]
+      response["EIOState"] = bitstates["EIO"]
+      response["FIOState"] = bitstates["FIO"]
+      response["Temperature"] = self.getTemperature()
+    self.IO_state = response
+    return self.IO_state
   
 class LJTickDAC():
   """
@@ -502,70 +531,25 @@ class LJTickDAC():
   EEPROM_address = 0x50
   DAC_address = 0x12
   
-  def __init__(self, device, FIO_pin=0):
+  def __init__(self, device, name, IO_chan=0):
     """
-    @type device : u3.U3 class instance
     @param device : LabJack with attached TickDAC
+    @type devicec : u3.U3 class instance
 
-    @type FIO_pin : int
-    @param FIO_pin : lower of FIO pin pair: 0, 2, 4, or 6
-
-    @return: None
+    @param name : identifier for this TickDAC
+    @type  name : str
+    
+    @param IO_chan : lower of FIO pin pair: 0, 2, 4, or 6
+    @type IO_chan : int
     """
     self.logger = logging.getLogger(__name__+".LJTickDAC")
     self.device = device
-    self.dacPin = FIO_pin
+    self.name = name
+    self.dacPin = IO_chan
+    self.data = {'A': self.Channel(self,'A'),
+                 'B': self.Channel(self,'B')}
     self.getCalConstants()
     self.voltages = [None,None]
-
-  def report_LabTick(self):
-    """
-    Report on the attributes of the LabTick instance
-    """
-    report = []
-    report.append("Serial number: "+str(self.device.serialNumber))
-    report.append("FIO pins "+str(self.dacPin)+' and '+str(self.dacPin+1))
-    report.append("Slopes:  %7.1f  %7.1f" % (self.aSlope, self.bSlope))
-    report.append("Offsets: %7.1f  %7.1f" % (self.aOffset,self.bOffset))
-    report.append("Output voltages: "+str(self.voltages))
-    return report
-  
-  def setVoltages(self,voltages):
-    """
-    Changes DACA and DACB to the amounts specified by the user
-
-    @type voltages : list
-    @param voltages : list
-
-    @return: bool
-    """
-    # Determine pin numbers
-    self.voltages = voltages
-    [voltageA, voltageB] = voltages
-    sclPin = self.dacPin
-    sdaPin = sclPin + 1
-    
-    # Make requests
-    try:
-      self.device.i2c(LJTickDAC.DAC_address,
-                      [48,
-                       int(((voltageA*self.aSlope) + self.aOffset)/256),
-                       int(((voltageA*self.aSlope) + self.aOffset)%256)],
-                       SDAPinNum = sdaPin,
-                       SCLPinNum = sclPin)
-      self.device.i2c(LJTickDAC.DAC_address,
-                      [49,
-                       int(((voltageB*self.bSlope)+self.bOffset)/256),
-                       int(((voltageB*self.bSlope)+self.bOffset)%256)],
-                       SDAPinNum = sdaPin,
-                       SCLPinNum = sclPin)
-      return True
-    except Exception, details:
-      print "Whoops! Something went wrong when setting the LJTickDAC."
-      print "Is the device detached?"
-      print "Python error:" + str(sys.exc_info()[1])
-      print str(details)
-      return False
 
   def getCalConstants(self):
     """
@@ -578,7 +562,7 @@ class LJTickDAC():
     Notes
     =====
     This is for U3 only
-    
+
     The LJTDAC has a non-volatile 128-byte EEPROM (Microchip 24C01C) on the I2C
     bus with a 7-bit address of 0x50 (d80), and thus an 8-bit address byte of
     0xA0 (d160). Bytes 0-63 are available to the user, while bytes 64-127 are
@@ -592,7 +576,7 @@ class LJTickDAC():
       88- 95  DACB Offset       3.2624E+04  bits
       96- 99  Serial Number
      100-127  Reserved
-    
+
     The DAC (digital-to-analog converter) chip on the LJTDAC is the LTC2617
     (linear.com) with a 7-bit address of 0x12 (d18), and thus an 8-bit address
     byte of 0x24 (d36). The data is justified to 16 bits, so a binary value of
@@ -606,30 +590,116 @@ class LJTickDAC():
     # Determine pin numbers
     sclPin = self.dacPin
     sdaPin = sclPin + 1
-  
+
     # Make request
     data = self.device.i2c(LJTickDAC.EEPROM_address,
                            [64],
                            NumI2CBytesToReceive=36,
                            SDAPinNum = sdaPin,
                            SCLPinNum = sclPin)
-    
-    response = data['I2CBytes']
+
     self.logger.debug("getCalConstants: data keys: %s",
                       data.keys())
-    self.aSlope = toDouble(response[0:8])
-    self.aOffset = toDouble(response[8:16])
-    self.bSlope = toDouble(response[16:24])
-    self.bOffset = toDouble(response[24:32])
+    response = data['I2CBytes']
+    self.logger.debug("getCalConstants: response = %s",response)
+    self.data['A'].slope = toDouble(response[0:8])
+    self.data['A'].offset = toDouble(response[8:16])
+    self.data['B'].slope = toDouble(response[16:24])
+    self.data['B'].offset = toDouble(response[24:32])
     self.serial = struct.unpack('<i',
                                 ''.join(chr(x) for x in response[32:36]))[0]
-  
+
     if 255 in response:
       self.logger.error("getCalConstants: %s", response)
       self.logger.warning(" Please go into settings\n"+
            "  and make sure the pin numbers are correct\n"+
            "  and that the LJTickDAC is properly attached.")
 
+  def report(self):
+    """
+    Report on the attributes of the LabTick instance
+    """
+    report = []
+    report.append("Serial number:     "+str(self.serial))
+    report.append("FIO base channel:  "+str(self.dacPin))
+    report.append("Slopes:  %7.1f  %7.1f" % (self.data['A'].slope,
+                                             self.data['B'].slope))
+    report.append("Offsets: %7.1f  %7.1f" % (self.data['A'].offset,
+                                             self.data['B'].offset))
+    return report
+
+  def __str__(self):
+    return self.base()+' "'+self.name+'"'
+
+  def __repr__(self):
+    return self.base()+' "'+self.name+'"'
+
+  def base(self):
+    """
+    String representing the class instance type
+    """
+    return str(type(self)).split()[-1].strip('>').strip("'").split('.')[-1]
+
+  def __setitem__(self, key, item):
+    self.data[key] = item
+
+  def __getitem__(self, key):
+    return self.data[key]
+
+  def keys(self):
+    return self.data.keys()
+
+  def has_key(self,key):
+    if self.data.has_key(key):
+      return True
+    else:
+      return False
+
+  class Channel(VoltageSource):
+    """
+    One of the LJTickDAC output channels
+
+    Attributes and methods inherited from Voltage Source::
+      logger        - logging.Logger instance
+      volts         - current voltage value
+      get_voltage() - asks for current voltage
+      set_voltage() - sets output voltage
+    """
+    def __init__(self, parent, name):
+      """
+      @param parent : LJTickDAC to which this belongs
+      @type  parent : LJTickDAC instance
+      
+      @param name : "A" or "B", lowercase allowed
+      @type  name : str
+      """
+      self.parent = parent
+      mylogger = logging.getLogger(self.parent.name+".Channel")
+      name = name.upper()
+      if name == 'A' or name == 'B':
+        self.name = name
+      else:
+        mylogger.error("invalid name %s", name)
+        raise ObservatoryError("invalid name")
+      VoltageSource.__init__(self)
+      self.logger = mylogger
+      self.index = ord(name) - ord('A')
+
+    def setVoltage(self, voltage):
+      """
+      """
+      try:
+        self.parent.device.i2c(LJTickDAC.DAC_address,
+                               [48+self.index,
+                                int(((voltage*self.slope) + self.offset)/256),
+                                int(((voltage*self.slope) + self.offset)%256)],
+                               SDAPinNum = self.parent.dacPin+1,
+                               SCLPinNum = self.parent.dacPin)
+        return True
+      except Exception, details:
+        self.logger.error("setVoltage: failed %s", sys.exc_info())
+        return False
+      
 
 class AIN_Reader(Thread):
   """
@@ -639,7 +709,7 @@ class AIN_Reader(Thread):
   =================
   device   - LabJack U3() instance
   pinNum   - pin number of analog input
-  interval  - time in seconds (float) between readings
+  interval - time in seconds (float) between readings
   running  - thread state
   voltage  - reading in V
   
