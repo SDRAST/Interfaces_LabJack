@@ -167,7 +167,7 @@ def connect_to_U3s(localIDs=None):
   if localIDs == None:
     serials = U3s.keys()
   else:
-    localIDs.keys()
+    serials = localIDs.keys()
   for serialno in serials :
     if localIDs == None:
       localID = U3s[serialno]['localId']
@@ -474,7 +474,7 @@ class LabJack(u3.U3):
     self.IO_state = response
     return self.IO_state
   
-class LJTickDAC():
+class LJTickDAC(object):
   """
   Each FIO section, when configured for digital output, can accomodate a
   TickDAC with two ADCs in the range of -10 to +10 V.  Pins VS and GND power
@@ -531,7 +531,7 @@ class LJTickDAC():
   EEPROM_address = 0x50
   DAC_address = 0x12
   
-  def __init__(self, device, name, IO_chan=0):
+  def __init__(self, labjack, name, IO_chan=0):
     """
     @param device : LabJack with attached TickDAC
     @type devicec : u3.U3 class instance
@@ -542,8 +542,8 @@ class LJTickDAC():
     @param IO_chan : lower of FIO pin pair: 0, 2, 4, or 6
     @type IO_chan : int
     """
-    self.logger = logging.getLogger(__name__+".LJTickDAC")
-    self.device = device
+    self.logger = logging.getLogger(module_logger.name+".LJTickDAC")
+    self.parent = labjack
     self.name = name
     self.dacPin = IO_chan
     self.data = {'A': self.Channel(self,'A'),
@@ -592,7 +592,7 @@ class LJTickDAC():
     sdaPin = sclPin + 1
 
     # Make request
-    data = self.device.i2c(LJTickDAC.EEPROM_address,
+    data = self.parent.i2c(LJTickDAC.EEPROM_address,
                            [64],
                            NumI2CBytesToReceive=36,
                            SDAPinNum = sdaPin,
@@ -675,26 +675,31 @@ class LJTickDAC():
       """
       self.parent = parent
       mylogger = logging.getLogger(self.parent.name+".Channel")
+      mylogger.debug(" initialized %s channel %s", self, name)
       name = name.upper()
       if name == 'A' or name == 'B':
         self.name = name
       else:
         mylogger.error("invalid name %s", name)
         raise ObservatoryError("invalid name")
-      VoltageSource.__init__(self)
+      VoltageSource.__init__(self, name, parent=parent)
       self.logger = mylogger
       self.index = ord(name) - ord('A')
+      self.volts = None
 
     def setVoltage(self, voltage):
       """
       """
+      self.logger.debug("setVoltage: setting %s to %f V", self, voltage)
+      self.logger.debug("setVoltage: LabJack is %s", self.parent.parent)
       try:
-        self.parent.device.i2c(LJTickDAC.DAC_address,
+        self.parent.parent.i2c(LJTickDAC.DAC_address,
                                [48+self.index,
                                 int(((voltage*self.slope) + self.offset)/256),
                                 int(((voltage*self.slope) + self.offset)%256)],
                                SDAPinNum = self.parent.dacPin+1,
                                SCLPinNum = self.parent.dacPin)
+        self.volts = voltage
         return True
       except Exception, details:
         self.logger.error("setVoltage: failed %s", sys.exc_info())
@@ -704,6 +709,8 @@ class LJTickDAC():
 class AIN_Reader(Thread):
   """
   A thread that reads from a specified analog input every interval
+
+  I think this can re replaced by DeviceReadThread
 
   Public Attributes
   =================
