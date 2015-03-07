@@ -674,6 +674,7 @@ class LJTickDAC(object):
       @type  name : str
       """
       self.parent = parent
+      self.name = name
       mylogger = logging.getLogger(self.parent.name+".Channel")
       mylogger.debug(" initialized %s channel %s", self, name)
       name = name.upper()
