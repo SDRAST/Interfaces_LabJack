@@ -100,6 +100,7 @@ import logging
 
 import Math
 from support import unique
+from MonitorControl import MCobject
 from Electronics.Instruments import VoltageSource
 
 module_logger = logging.getLogger(__name__)
@@ -471,7 +472,7 @@ class LabJack(u3.U3):
     self.IO_state = response
     return self.IO_state
   
-class LJTickDAC(object):
+class LJTickDAC(MCobject):
   """
   Each FIO section, when configured for digital output, can accomodate a
   TickDAC with two ADCs in the range of -10 to +10 V.  Pins VS and GND power
@@ -625,18 +626,6 @@ class LJTickDAC(object):
                                              self.data['B'].offset))
     return report
 
-  def __str__(self):
-    return self.base()+' "'+self.name+'"'
-
-  def __repr__(self):
-    return self.base()+' "'+self.name+'"'
-
-  def base(self):
-    """
-    String representing the class instance type
-    """
-    return str(type(self)).split()[-1].strip('>').strip("'").split('.')[-1]
-
   def __setitem__(self, key, item):
     self.data[key] = item
 
@@ -671,6 +660,7 @@ class LJTickDAC(object):
       @type  name : str
       """
       self.parent = parent
+      self.name = name
       mylogger = logging.getLogger(self.parent.name+".Channel")
       mylogger.debug(" initialized %s channel %s", self, name)
       name = name.upper()
@@ -702,7 +692,13 @@ class LJTickDAC(object):
         self.logger.error("setVoltage: failed %s", sys.exc_info())
         return False
       
-
+    def getVoltage(self):
+      """
+      """
+      if self.volts == None:
+	self.logger.warning(" %s cannot read its own voltage", self.base())
+      return super(LJTickDAC.Channel, self).getVoltage()
+      
 class AIN_Reader(Thread):
   """
   A thread that reads from a specified analog input every interval
