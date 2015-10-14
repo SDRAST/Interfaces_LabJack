@@ -182,8 +182,8 @@ def report_U3_config(lj):
   """
   Prints the U3 power-up configuration of all U3s
 
-  @type config : dictionary
-  @param config : result from get_IO_states()
+  @type lj  : dictionary
+  @param lj : connected LabJack objects
 
   @return: None
   """
@@ -218,8 +218,8 @@ def report_IO_config(lj):
   """
   Print the IO state of all U3s
 
-  @type config : dictionary
-  @param config : result from get_IO_states()
+  @type lj : dictionary
+  @param lj : connected LabJack objects
 
   @return: None
   """
@@ -435,9 +435,6 @@ class LabJack(u3.U3):
     """
     Get the I/O state of the connected U3s
 
-    @type lj : dictionary
-    @param lj : u3.U3 class instances keyed by local ID
-
     @return: dictionary
     """
     self.IO_state = {}
@@ -533,8 +530,8 @@ class LJTickDAC(object):
   
   def __init__(self, labjack, name, IO_chan=0):
     """
-    @param device : LabJack with attached TickDAC
-    @type devicec : u3.U3 class instance
+    @param labjack : LabJack with attached TickDAC
+    @type  labjack : u3.U3 class instance
 
     @param name : identifier for this TickDAC
     @type  name : str
